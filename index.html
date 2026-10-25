@@ -129,12 +129,13 @@
   .tm .av.dead::after{content:"✕";position:absolute;inset:-4px;font-size:12px;font-weight:900;color:var(--ink);text-align:center;line-height:14px}
   .tm.lead{transform:translateY(-3px)}
   #roundNum{background:var(--ink);color:#fff;border-radius:12px;padding:6px 10px;font-weight:900;font-size:13px;border:3px solid var(--ink);box-shadow:0 3px 0 var(--ink);align-self:center}
-  #inter{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:rgba(29,36,51,.35);z-index:6;pointer-events:none}
+  #inter{position:fixed;top:calc(112px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:none;z-index:6;pointer-events:none}
   #inter.show{display:flex}
-  #inter .box{background:#fff;border:4px solid var(--ink);border-radius:20px;padding:18px 26px;text-align:center;box-shadow:0 8px 0 var(--ink);pointer-events:auto;max-width:90vw}
-  #inter h2{font-size:26px;margin:0 0 4px}
-  #inter .cnt{font-size:48px;font-weight:900;line-height:1;margin:6px 0}
-  #inter .sub2{font-weight:700;color:var(--muted);font-size:13px;margin-bottom:10px}
+  #inter .box{background:#fff;border:3px solid var(--ink);border-radius:16px;padding:8px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 4px 0 var(--ink);pointer-events:auto;max-width:94vw;white-space:nowrap}
+  #inter h2{font-size:15px;margin:0}
+  #inter .cnt{font-size:26px;font-weight:900;line-height:1;min-width:30px;text-align:center;color:var(--lava)}
+  #inter .sub2{font-weight:700;color:var(--muted);font-size:11px}
+  #inter .txt{display:flex;flex-direction:column}
   
   #slideBtn{position:fixed;right:22px;bottom:calc(150px + env(safe-area-inset-bottom));width:72px;height:72px;border-radius:50%;background:#8c6cff;color:#fff;border:3px solid var(--ink);box-shadow:0 5px 0 var(--ink);font-weight:900;font-size:13px;display:none}
   #slideBtn.down{transform:translateY(4px);box-shadow:0 1px 0 var(--ink)}
@@ -224,7 +225,7 @@
   <div id="joy"><div id="knob"></div></div>
   <button id="camBtn">📷 Follow</button>
   <div id="rounds"></div>
-  <div id="inter"><div class="box"><h2 id="interTitle">Round over</h2><div class="sub2" id="interSub"></div><div class="cnt" id="interCnt">2</div><button id="wpnBtn2" class="pay" style="font-size:16px;padding:10px 18px">🎒 Change weapons</button></div></div>
+  <div id="inter"><div class="box"><div class="txt"><h2 id="interTitle">Round over</h2><div class="sub2" id="interSub"></div></div><div class="cnt" id="interCnt">2</div><button id="wpnBtn2" class="buy" style="font-size:13px">🎒 Change weapons</button></div></div>
   <div id="wpnName"></div>
   <div id="loadout"></div>
   <button id="scopeBtn">🔍 Scope</button>
@@ -390,7 +391,7 @@ const GEAR={
   ]
 };
 const SLOTS=['primary','secondary','melee','utility'];
-const ROUNDS_TO_WIN=4, MAX_ROUNDS=7, ROUND_DELAY=2;
+const ROUNDS_TO_WIN=6, MAX_ROUNDS=11, ROUND_DELAY=2;
 const loadout={primary:GEAR.primary[0], secondary:GEAR.secondary[0], melee:GEAR.melee[0], utility:GEAR.utility[0]};
 let slot=0; let WPN=loadout.primary, scoped=false; const slotCd={};
 function pickWeapon(g){ // loadout screen
@@ -475,7 +476,7 @@ function netSync(dt){
   for(const e of A.bots){ if(!e.net) continue; e.m.position.lerp(e.net.p,Math.min(1,dt*12)); let d=e.net.yaw-e.m.rotation.y; d=Math.atan2(Math.sin(d),Math.cos(d)); e.m.rotation.y+=d*Math.min(1,dt*12); e.m.scale.y=e.slide?.55:1; const w=e.m.position.distanceTo(e.net.p)>.05?Math.sin(S.t*12)*.6:0; e.m.legL.rotation.x=w; e.m.legR.rotation.x=-w; }
 }
 const roundsEl=document.getElementById('rounds');
-function renderRounds(){ if(!A) return; let html=`<div id="roundNum">Round ${Math.min(A.roundNo,MAX_ROUNDS)}/${MAX_ROUNDS}</div>`; const lead=Math.max(...A.teams.map(t=>t.rounds||0));
+function renderRounds(){ if(!A) return; let html=`<div id="roundNum">Round ${Math.min(A.roundNo,MAX_ROUNDS)} · first to ${ROUNDS_TO_WIN}</div>`; const lead=Math.max(...A.teams.map(t=>t.rounds||0));
   A.teams.forEach((t,i)=>{ const col='#'+t.col.toString(16).padStart(6,'0'); const members=[]; if(i===A.myTeam) members.push(`<div class="av me ${A.meDead?'dead':''}" style="background:${col}" title="You"></div>`);
     for(const b of A.bots) if(b.team===i) members.push(`<div class="av ${b.dead>0?'dead':''}" style="background:${col}" title="${b.name||'Bot'}"></div>`);
     html+=`<div class="tm ${lead>0&&(t.rounds||0)===lead?'lead':''}" style="border-color:${col}"><div class="rw" style="color:${col}">${t.rounds||0}</div><div class="ch">${members.join('')}</div></div>`; });
@@ -693,7 +694,7 @@ addEventListener('resize',resize);
 addEventListener('blur',()=>{ for(const k in keys) keys[k]=false; jumpHeld=false; fireHeld=false; joy.id=null; joy.x=joy.y=0; setKnob(0,0); });
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) clock.getDelta(); });
 
-function startGame(g){ G=g; JUMP=g.jump||11.5; if(scene) disposeScene(); buildWorld(g); const ar=!!g.arena; fireBtn.style.display=ar?'block':'none'; slideBtn.style.display=ar?'block':'none'; loadoutEl.classList.toggle('show',ar); document.getElementById('xhair').style.display=ar?'block':'none'; setScope(false); if(ar){ renderLoadout(); setSlot(0); arenaHud(); A.roundNo=1; renderRounds(); roundsEl.classList.add('show'); hideInter(); toast('Round 1','first to 4 of 7 rounds · last team standing wins the round'); } else { roundsEl.classList.remove('show'); hideInter(); } document.getElementById('home').style.display='none'; document.getElementById('game').classList.add('active'); resize(); toastEl.classList.remove('show'); running=true; clock.getDelta(); }
+function startGame(g){ G=g; JUMP=g.jump||11.5; if(scene) disposeScene(); buildWorld(g); const ar=!!g.arena; fireBtn.style.display=ar?'block':'none'; slideBtn.style.display=ar?'block':'none'; loadoutEl.classList.toggle('show',ar); document.getElementById('xhair').style.display=ar?'block':'none'; setScope(false); if(ar){ renderLoadout(); setSlot(0); arenaHud(); A.roundNo=1; renderRounds(); roundsEl.classList.add('show'); hideInter(); toast('Round 1',`first to ${ROUNDS_TO_WIN} rounds · last team standing wins the round`); } else { roundsEl.classList.remove('show'); hideInter(); } document.getElementById('home').style.display='none'; document.getElementById('game').classList.add('active'); resize(); toastEl.classList.remove('show'); running=true; clock.getDelta(); }
 function disposeScene(){ scene.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose()); } }); }
 function leaveGame(){ running=false; netLeave(); roundsEl.classList.remove('show'); hideInter(); document.querySelectorAll('.dmg').forEach(e=>e.remove()); if(player) player.scale.y=1; setScope(false); scopeBtn.style.display='none'; loadoutEl.classList.remove('show'); wpnNameEl.classList.remove('show'); document.getElementById('game').classList.remove('active'); document.getElementById('home').style.display='flex'; toastEl.classList.remove('show'); renderGrid(); }
 document.getElementById('exit').onclick=leaveGame;
