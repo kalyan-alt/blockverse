@@ -1,5 +1,5 @@
 // Blockverse service worker v4: network-first for the page, cache-first for three.js
-const CACHE='blockverse-v20';
+const CACHE='blockverse-v21';
 self.addEventListener('install',e=>{ e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js']).catch(()=>{})).then(()=>self.skipWaiting())); });
 self.addEventListener('activate',e=>{ e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())); });
 self.addEventListener('fetch',e=>{
