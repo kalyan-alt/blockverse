@@ -257,6 +257,7 @@ const GAMES = [
   {id:'lava',  name:'Lava Rush',       emoji:'🌋', bg:'linear-gradient(135deg,#ff8c42,#ff4b3a)', desc:'Fast and hot · 9 stages', stages:9, speed:11, lava:2},
   {id:'sky',   name:'Sky Islands',     emoji:'☁️', bg:'linear-gradient(135deg,#c7e9ff,#8c6cff)', desc:'Long jumps · 6 stages', stages:6, speed:9.5, lava:0, gap:1.4, jump:12.5},
   {id:'tower', name:'Tower Climb',     emoji:'🗼', bg:'linear-gradient(135deg,#ffd23f,#ff8c42)', desc:'Spiral up · 8 stages', stages:8, speed:8.5, lava:0, tower:true},
+  {id:'forest', name:'Campfire Nights', emoji:'🔥', bg:'linear-gradient(135deg,#0f2a1c,#3b7a4a)', desc:'Survive 7 nights · chop wood · keep the fire lit', stages:7, speed:9, lava:0, arena:true, forest:true},
   {id:'arena', name:'Blaster Arena',   emoji:'🎯', bg:'linear-gradient(135deg,#1d2433,#8c6cff)', desc:'Best of 7 rounds · last team standing · online or bots', stages:1, speed:10, lava:0, arena:true},
 ];
 
@@ -268,7 +269,7 @@ function hex(c){ return '#'+c.toString(16).padStart(6,'0'); }
 const grid=document.getElementById('gameGrid');
 function renderGrid(){ grid.innerHTML=''; for(const g of GAMES){ const b=document.createElement('button'); b.className='game';
   const best=g.arena?undefined:acct.best[g.id]; b.innerHTML=`<div class="thumb" style="background:${g.bg}">${g.emoji}</div><div class="body"><div class="name">${g.name}</div><div class="meta">${g.desc}</div>${best!==undefined?`<div class="best">Best: ${best} ${g.arena?'tagged out':'wipeouts'}</div>`:''}</div>`;
-  b.onclick=()=>g.arena?pickMap(g):startGame(g); grid.appendChild(b);} }
+  b.onclick=()=>g.forest?(MAP={id:'woods',name:'The Woods'},MODE={id:'survival',name:'Survival',emoji:'🌲',teams:[1,1],target:7},pickWeapon(g)):(g.arena?pickMap(g):startGame(g)); grid.appendChild(b);} }
 
 // tabs
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
@@ -319,6 +320,7 @@ function buildWorld(g){
   const coin=(x,y,z)=>{ const m=new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,.18,20),mat(0xffd23f)); m.rotation.x=Math.PI/2; m.position.set(x,y,z); m.castShadow=true; scene.add(m); coins.push({mesh:m,taken:false,base:y}); };
   const checkpoint=(x,y,z,i)=>{ block(x,y,z,6,1,6,0x3ad39a,{checkpoint:i}); const pole=new THREE.Mesh(new THREE.BoxGeometry(.3,4,.3),mat(0x1d2433)); pole.position.set(x+2.3,y+2.5,z-2.3); scene.add(pole);
     const flag=new THREE.Mesh(new THREE.BoxGeometry(1.6,1,.15),mat(0xff4b3a)); flag.position.set(x+1.4,y+4,z-2.3); scene.add(flag); checkpoints.push({pos:new THREE.Vector3(x,y+1.5,z),flag}); };
+  if(g.forest){ buildForest(g,block,coin,checkpoint); return; }
   if(g.arena){ buildArena(g,block,coin,checkpoint); return; }
   const R=rng(g.id.length*7919+g.stages*131), pal=[0xcfd6e3,0xb7c0d1,0xc98a4b,0x8c6cff];
   const gap=g.gap||1, lavaRate=g.lava;
@@ -340,6 +342,54 @@ function buildWorld(g){
   S={cp:0,deaths:0,coins:0,done:false,t:0,stages:g.stages};
   camYaw=0; camPitch=.45; respawn(); hud();
 }
+// ---------- Campfire Nights (survival) ----------
+const DAY_LEN=35, NIGHT_LEN=30, NIGHTS_TO_WIN=7;
+function buildCreature(){ const g=new THREE.Group(); const dark=0x2a1f3d; const part=(w,h,d,c,x,y,z)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(c)); m.position.set(x,y,z); m.castShadow=true; g.add(m); return m; };
+  part(1.3,1.3,1.3,dark,0,2.5,0); part(1.5,1.8,.9,dark,0,1.1,0); g.armL=part(.5,1.6,.5,dark,-1.05,1.1,0); g.armR=part(.5,1.6,.5,dark,1.05,1.1,0); g.legL=part(.6,1.3,.6,dark,-.4,-.45,0); g.legR=part(.6,1.3,.6,dark,.4,-.45,0);
+  const eye=new THREE.MeshBasicMaterial({color:0xff2d2d}); for(const x of [-.3,.3]){ const e=new THREE.Mesh(new THREE.BoxGeometry(.22,.22,.08),eye); e.position.set(x,2.6,-.68); g.add(e); } return g; }
+function buildForest(g,block,coin,checkpoint){
+  scene.background=new THREE.Color(0x9fd3ff); scene.fog=new THREE.Fog(0x9fd3ff,40,110);
+  const SZ=90; block(0,-.5,0,SZ,1,SZ,0x4f9a55,{floor:true});
+  for(const [x,z,w,d] of [[0,-SZ/2,SZ+2,2],[0,SZ/2,SZ+2,2],[-SZ/2,0,2,SZ],[SZ/2,0,2,SZ]]) block(x,2,z,w,5,d,0x2f5d38,{solid:true});
+  const R=rng(777); A={bots:[],shots:[],bombs:[],booms:[],texts:[],dmgTotal:0,roundNo:1,roundOver:false,roundTimer:0,meDead:false,score:0,hp:100,time:0,covers:[],target:NIGHTS_TO_WIN,over:false,fireCd:0,hitCd:0,lim:SZ/2-2,shieldT:0,swing:0,dash:null,forest:true,
+    F:{night:0,phase:'day',t:DAY_LEN,fuel:100,wood:0,trees:[],spawnT:0,chopCd:0,outT:0,kills:0}};
+  for(const k in slotCd) delete slotCd[k];
+  A.teams=[{score:0,col:0x3ad39a,name:'You',rounds:0},{score:0,col:0x2a1f3d,name:'Shadows',rounds:0}]; A.myTeam=0;
+  // trees
+  for(let i=0;i<55;i++){ const x=(R()-.5)*(SZ-10), z=(R()-.5)*(SZ-10); if(Math.hypot(x,z)<9) continue; const h=3+R()*3; const trunk=block(x,h/2,z,1.2,h,1.2,0x7a4a24,{solid:true}); A.covers.push(trunk);
+    const leaf=new THREE.Mesh(new THREE.BoxGeometry(3.5+R()*2,3+R()*2,3.5+R()*2),mat([0x2e7d3b,0x3a9a4a,0x256b31][i%3])); leaf.position.set(x,h+1.5,z); leaf.castShadow=true; scene.add(leaf); A.F.trees.push({x,z,trunk,leaf,wood:3}); }
+  // campfire
+  const logs=[[0,0,.3,0],[0,0,.3,Math.PI/3],[0,0,.3,-Math.PI/3]]; for(const [x,z,y,r] of logs){ const l=new THREE.Mesh(new THREE.BoxGeometry(2.4,.5,.5),mat(0x5a351a)); l.position.set(x,y,z); l.rotation.y=r; scene.add(l); }
+  const flame=new THREE.Mesh(new THREE.ConeGeometry(.9,2.2,8),new THREE.MeshBasicMaterial({color:0xff8c2a})); flame.position.set(0,1.5,0); scene.add(flame); A.F.flame=flame;
+  const glow=new THREE.PointLight(0xffa040,1.6,22); glow.position.set(0,2.5,0); scene.add(glow); A.F.glow=glow;
+  const ring=new THREE.Mesh(new THREE.RingGeometry(9.5,10,48),new THREE.MeshBasicMaterial({color:0xffb039,transparent:true,opacity:.35,side:THREE.DoubleSide})); ring.rotation.x=-Math.PI/2; ring.position.y=.05; scene.add(ring); A.F.ring=ring;
+  A.F.hemi=scene.children.find(o=>o.isHemisphereLight); A.F.sun=scene.children.find(o=>o.isDirectionalLight);
+  for(let i=0;i<8;i++) coin((R()-.5)*(SZ-14),1,(R()-.5)*(SZ-14));
+  checkpoint(0,0,6,0); checkpoints[0].pos.set(0,1.5,6);
+  totalCoins=coins.length; player=buildAvatar(); teamRing(player,0x3ad39a); scene.add(player);
+  P={pos:new THREE.Vector3(0,1.5,6),vel:new THREE.Vector3(),onGround:false,yaw:0,halfW:.7,standing:null};
+  S={cp:0,deaths:0,coins:0,done:false,t:0,stages:NIGHTS_TO_WIN}; camYaw=0; camPitch=.4; hud();
+}
+function forestHud(){ const F=A.F; const near=nearTree(), atFire=P.pos.length()<4.5;
+  document.getElementById('pStage').innerHTML=`<small>${F.phase==='day'?'☀️ day':'🌙 night'} ${F.night+ (F.phase==='day'?1:0)} / ${NIGHTS_TO_WIN}</small>${Math.ceil(F.t)}s`;
+  document.getElementById('pCoins').innerHTML=`<small>🔥 fuel</small><span class="hp" style="width:60px"><i style="width:${Math.max(0,F.fuel)}%;background:${F.fuel<25?'var(--lava)':'var(--sun)'}"></i></span>`;
+  document.getElementById('pDeaths').innerHTML=`<small>🪵 wood</small>${F.wood} / 5`;
+  fireBtn.textContent=atFire&&F.wood>0?'FEED':(near&&F.wood<5?'CHOP':(WPN.kind==='melee'?'SWING':WPN.kind==='gun'?'FIRE':'USE')); }
+function nearTree(){ let best=null,bd=3.2; for(const t of A.F.trees){ if(t.wood<=0) continue; const d=Math.hypot(P.pos.x-t.x,P.pos.z-t.z); if(d<bd){bd=d;best=t;} } return best; }
+function forestAction(){ const F=A.F; if(P.pos.length()<4.5&&F.wood>0){ F.wood--; F.fuel=Math.min(100,F.fuel+22); toast('🔥 +fuel'); return true; }
+  const t=nearTree(); if(t&&F.wood<5&&F.chopCd<=0){ F.chopCd=.6; F.wood++; t.wood--; t.leaf.scale.setScalar(.5+t.wood/6); A.swing=.3; if(t.wood<=0){ t.leaf.visible=false; setTimeout(()=>{ t.wood=3; t.leaf.visible=true; t.leaf.scale.setScalar(1); },25000); } return true; } return false; }
+function updateForest(dt){ const F=A.F; F.t-=dt; F.chopCd-=dt; F.fuel-=dt*(F.phase==='night'?2.2:1.2);
+  if(F.t<=0){ if(F.phase==='day'){ F.phase='night'; F.t=NIGHT_LEN; F.spawnT=1; toast(`🌙 Night ${F.night+1}`,'stay in the firelight'); } else { F.night++; F.phase='day'; F.t=DAY_LEN; for(const b of A.bots){ b.dead=9e9; b.m.visible=false; } A.bots=[]; if(F.night>=NIGHTS_TO_WIN){ A.over=true; S.done=true; acct.wins++; acct.bits+=80; fmtBits(); toast('You survived! 🏆',`${NIGHTS_TO_WIN} nights · ${F.kills} shadows banished · +80 Blockbux`,true); } else toast(`☀️ Day ${F.night+1}`,'gather wood while it\'s safe'); } }
+  // lighting
+  const night=F.phase==='night'; const k=night?Math.min(1,(NIGHT_LEN-F.t)*.5):Math.max(0,1-(DAY_LEN-F.t)*.5); const sky=new THREE.Color(0x9fd3ff).lerp(new THREE.Color(0x0b1026),k); scene.background.copy(sky); scene.fog.color.copy(sky); if(A.F.hemi) A.F.hemi.intensity=.75-.6*k; if(A.F.sun) A.F.sun.intensity=.9-.8*k;
+  const lit=F.fuel>0; A.F.flame.visible=lit; A.F.flame.scale.setScalar(lit?.6+F.fuel/150+Math.sin(S.t*14)*.08:0); A.F.glow.intensity=lit?1.2+F.fuel/80:0; A.F.ring.visible=lit; A.F.ring.material.opacity=.15+.25*k;
+  if(!lit){ F.outT+=dt; if(F.outT>12&&!A.over){ A.over=true; S.done=true; toast('The fire went out… 😵',`Survived ${F.night} nights · ${F.kills} shadows banished`,true); } } else F.outT=0;
+  // creatures
+  if(night&&!A.over){ F.spawnT-=dt; if(F.spawnT<=0&&A.bots.length<4+F.night*2){ F.spawnT=3.5-Math.min(2,F.night*.3); const a=Math.random()*6.28; const m=buildCreature(); m.position.set(Math.cos(a)*(A.lim-5),1.1,Math.sin(a)*(A.lim-5)); scene.add(m); A.bots.push({id:'c'+Math.random(),m,hp:2+Math.floor(F.night/3),team:1,dead:0,cd:0,wp:new THREE.Vector3(),wpT:0,creature:true}); } }
+  for(const c of A.bots){ if(c.dead>0) continue; const to=P.pos.clone().sub(c.m.position); to.y=0; const d=to.length(); const fireD=c.m.position.length(); const sp=3.6+F.night*.25;
+    if(lit&&fireD<10&&P.pos.length()<10){ c.m.position.add(c.m.position.clone().setY(0).normalize().multiplyScalar(sp*dt)); } else if(d>1.6){ c.m.position.add(to.normalize().multiplyScalar(sp*dt)); } else { c.cd-=dt; if(c.cd<=0){ c.cd=1; if(A.shieldT<=0){ A.hp-=15; A.hitCd=.5; if(A.hp<=0){ A.hp=100; S.deaths++; acct.deaths++; F.wood=0; toast('Knocked out!','you wake up by the fire'); respawn(); } } } }
+    c.m.rotation.y=Math.atan2(to.x,to.z)+Math.PI; const w=Math.sin(S.t*9+c.m.position.x)*.7; c.m.legL.rotation.x=w; c.m.legR.rotation.x=-w; c.m.position.x=Math.max(-A.lim,Math.min(A.lim,c.m.position.x)); c.m.position.z=Math.max(-A.lim,Math.min(A.lim,c.m.position.z)); }
+  forestHud(); }
 // ---------- Blaster Arena ----------
 let A=null; // arena state
 const MAPS=[
@@ -402,8 +452,8 @@ function pickWeapon(g){ // loadout screen
   for(const k of SLOTS){ const lbl=document.createElement('div'); lbl.className='lo-lbl'; lbl.textContent=k.toUpperCase(); lo.appendChild(lbl); const row=document.createElement('div'); row.className='chips';
     for(const w of GEAR[k]){ const c=document.createElement('button'); c.className='chip2'+(loadout[k]===w?' on':''); c.innerHTML=`${w.emoji} ${w.name}<small>${w.desc}</small>`; c.onclick=()=>{ loadout[k]=w; row.querySelectorAll('.chip2').forEach(x=>x.classList.remove('on')); c.classList.add('on'); }; row.appendChild(c); }
     lo.appendChild(row); }
-  sheet.querySelector('#loPlay').onclick=()=>{ if(ONLINE_URL) queueOnline(g); else { closeModal(); startGame(g); } };
-  sheet.querySelector('#wCancel').onclick=()=>pickMode(g);
+  sheet.querySelector('#loPlay').onclick=()=>{ if(ONLINE_URL&&!g.forest) queueOnline(g); else { closeModal(); startGame(g); } };
+  sheet.querySelector('#wCancel').onclick=()=>g.forest?closeModal():pickMode(g);
 }
 const loadoutEl=document.getElementById('loadout'), wpnNameEl=document.getElementById('wpnName');
 function openWeaponSheet(){ sheet.innerHTML=`<h3>Change weapons</h3><div class="sub">Takes effect right away</div><div id="lo"></div><button class="pay" id="loApply">Apply</button><button class="cancel" id="loClose">Close</button>`;
@@ -425,6 +475,7 @@ const scopeBtn=document.getElementById('scopeBtn');
 scopeBtn.onclick=()=>setScope(!scoped);
 addEventListener('keydown',e=>{ if(!G||!G.arena||!running) return; if(e.code==='KeyQ') setSlot((slot+1)%4); if(e.key>='1'&&e.key<='4') setSlot(+e.key-1); if(e.code==='ShiftLeft'||e.code==='KeyE') setScope(!scoped); if(e.code==='KeyF') { slot!==2&&setSlot(2); fireQueued=true; } if(e.code==='KeyG'){ slot!==3&&setSlot(3); fireQueued=true; } });
 addEventListener('wheel',e=>{ if(G&&G.arena&&running) setSlot((slot+(e.deltaY>0?1:3))%4); });
+addEventListener('keydown',e=>{ if(G&&G.forest&&running&&e.code==='KeyE'&&!e.repeat) fireQueued=true; });
 renderer.domElement.addEventListener('contextmenu',e=>{ e.preventDefault(); if(G&&G.arena) setScope(!scoped); });
 function pickMap(g){
   sheet.innerHTML=`<h3>Step 1 of 3 · Map</h3><div class="sub">Blaster Arena</div><div id="mapList"></div><button class="cancel" id="mapCancel">Cancel</button>`;
@@ -576,7 +627,7 @@ function applyHit(best,dmg,byTeam=A.myTeam,byId=null){
   if(A.roundOver) return;
   if(NET){ if(byTeam===A.myTeam&&!byId) A.dmgTotal=(A.dmgTotal||0)+dmg; netSend({t:'hit',target:best.id,dmg,by:byId||NET.me}); return; }
   best.hp-=dmg; if(byTeam===A.myTeam) A.dmgTotal=(A.dmgTotal||0)+dmg;
-  if(best.hp<=0){ best.dead=9e9; best.m.visible=false; creditTag(byTeam); renderRounds(); checkRoundEnd(); }
+  if(best.hp<=0){ best.dead=9e9; best.m.visible=false; if(A.forest){ A.F.kills++; acct.bits+=2; fmtBits(); scene.remove(best.m); A.bots=A.bots.filter(x=>x!==best); return; } creditTag(byTeam); renderRounds(); checkRoundEnd(); }
 }
 function creditTag(team){ A.teams[team].score++; if(team===A.myTeam){ A.score++; acct.bits+=3; fmtBits(); } }
 function playerEliminated(byTeam){ if(A.meDead||A.roundOver) return; A.meDead=true; S.deaths++; acct.deaths++; player.visible=false; if(byTeam!==undefined&&!NET) creditTag(byTeam); toast("You're out!",'watching the rest of the round'); renderRounds(); checkRoundEnd(); }
@@ -594,11 +645,13 @@ function updateArena(dt){
   for(const tx of A.texts){ tx.t-=dt; tx.pos.y+=tx.vy*dt; const v=tx.pos.clone().project(camera); if(v.z>1){ tx.el.style.opacity=0; } else { tx.el.style.opacity=Math.min(1,tx.t*2); tx.el.style.transform=`translate(-50%,-50%) translate(${(v.x+1)/2*innerWidth}px,${(1-v.y)/2*innerHeight}px) scale(${1+(0.9-tx.t)*.4})`; } if(tx.t<=0) tx.el.remove(); } A.texts=A.texts.filter(t=>t.t>0);
   for(const bm of A.booms){ bm.t-=dt; bm.m.scale.setScalar(1+(0.35-bm.t)*loadout.utility.radius*2.6); bm.m.material.opacity=bm.t*2; if(bm.t<=0) scene.remove(bm.m); } A.booms=A.booms.filter(b=>b.t>0);
   player.visible=true; if(A.shieldT>0){ player.traverse(o=>{ if(o.material) o.material.emissive&&o.material.emissive.setHex(Math.floor(A.time*10)%2?0x3ad39a:0x000000); }); } else player.traverse(o=>{ if(o.material&&o.material.emissive) o.material.emissive.setHex(0); });
+  if(A.forest){ if(fireQueued&&forestAction()){ fireQueued=false; } }
   if((fireHeld||fireQueued)&&!A.meDead&&!A.roundOver&&!modal.classList.contains('show')) playerFire(); fireQueued=false; A.slideCd=(A.slideCd||0)-dt; pollSlideKey(); if(slideQueued) trySlide();
   for(const sh of A.shots){ sh.t-=dt; if(sh.t<=0){ scene.remove(sh.l); } } A.shots=A.shots.filter(x=>x.t>0);
   // keep player inside arena & out of covers
   const lim=A.lim; P.pos.x=Math.max(-lim,Math.min(lim,P.pos.x)); P.pos.z=Math.max(-lim,Math.min(lim,P.pos.z));
   for(const c of A.covers) pushOut(P.pos,c);
+  if(A.forest){ { const lim=A.lim; P.pos.x=Math.max(-lim,Math.min(lim,P.pos.x)); P.pos.z=Math.max(-lim,Math.min(lim,P.pos.z)); for(const c of A.covers) pushOut(P.pos,c); } updateForest(dt); const camRay=new THREE.Ray(camera.position.clone(),new THREE.Vector3()); camera.getWorldDirection(camRay.direction); const sph=new THREE.Sphere(); let over=false; for(const b of A.bots){ sph.set(b.m.position.clone().add(new THREE.Vector3(0,1.8,0)),1.6); if(camRay.intersectsSphere(sph)){over=true;break;} } xhair.classList.toggle('target',over); return; }
   handleNet(); netSync(dt); const isHost=!NET||NET.host===NET.me;
   for(const b of A.bots){
     if(b.isPlayer) continue; // remote humans are moved by netSync
@@ -660,7 +713,7 @@ document.getElementById('camBtn').onclick=()=>{ acct.follow=!acct.follow; docume
 const toastEl=document.getElementById('toast'); let toastT;
 function toast(big,small='',sticky=false){ toastEl.innerHTML=big+(small?`<small>${small}</small>`:'')+(sticky?'<br><button class="btn" onclick="leaveGame()">Back to games</button>':''); toastEl.classList.add('show'); clearTimeout(toastT); if(!sticky) toastT=setTimeout(()=>toastEl.classList.remove('show'),1600); }
 function hud(){ document.getElementById('pDeaths').innerHTML='<small>wipeouts</small>'+S.deaths; document.getElementById('pStage').innerHTML='<small>stage</small>'+(S.cp+1)+' / '+S.stages; document.getElementById('pCoins').innerHTML='<small>coins</small>'+S.coins+' / '+totalCoins; }
-function respawn(){ if(G&&G.arena&&A&&A.teams){ P.pos.copy(spawnPoint(A.myTeam,0,1)); P.pos.y=1.5; P.vel.set(0,0,0); P.standing=null; return; } const c=checkpoints[S.cp]; P.pos.copy(c.pos); P.vel.set(0,0,0); P.standing=null; }
+function respawn(){ if(G&&G.forest){ P.pos.set(0,1.5,6); P.vel.set(0,0,0); A.hp=100; return; } if(G&&G.arena&&A&&A.teams){ P.pos.copy(spawnPoint(A.myTeam,0,1)); P.pos.y=1.5; P.vel.set(0,0,0); P.standing=null; return; } const c=checkpoints[S.cp]; P.pos.copy(c.pos); P.vel.set(0,0,0); P.standing=null; }
 function die(){ if(G&&G.arena){ if(NET){ netSend({t:'hit',target:NET.me,dmg:99,by:NET.me}); respawn(); return; } playerEliminated(); respawn(); return; } S.deaths++; acct.deaths++; hud(); toast('Wipeout!','back to stage '+(S.cp+1)); respawn(); }
 const clock=new THREE.Clock(); let running=false; const GRAV=-30; let JUMP=11.5; const tmpV=new THREE.Vector3();
 function update(dt){
@@ -696,7 +749,8 @@ addEventListener('resize',resize);
 addEventListener('blur',()=>{ for(const k in keys) keys[k]=false; jumpHeld=false; fireHeld=false; joy.id=null; joy.x=joy.y=0; setKnob(0,0); });
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden) clock.getDelta(); });
 
-function startGame(g){ G=g; JUMP=g.jump||11.5; if(scene) disposeScene(); buildWorld(g); const ar=!!g.arena; fireBtn.style.display=ar?'block':'none'; slideBtn.style.display=ar?'block':'none'; loadoutEl.classList.toggle('show',ar); document.getElementById('xhair').style.display=ar?'block':'none'; setScope(false); if(ar){ renderLoadout(); setSlot(0); arenaHud(); A.roundNo=1; renderRounds(); roundsEl.classList.add('show'); hideInter(); toast('Round 1',`first to ${ROUNDS_TO_WIN} rounds · last team standing wins the round`); } else { roundsEl.classList.remove('show'); hideInter(); } document.getElementById('home').style.display='none'; document.getElementById('game').classList.add('active'); resize(); toastEl.classList.remove('show'); running=true; clock.getDelta(); }
+function startGame(g){ G=g; JUMP=g.jump||11.5; if(scene) disposeScene(); buildWorld(g); const ar=!!g.arena; fireBtn.style.display=ar?'block':'none'; slideBtn.style.display=ar?'block':'none'; loadoutEl.classList.toggle('show',ar); document.getElementById('xhair').style.display=ar?'block':'none'; setScope(false); if(ar&&g.forest){ renderLoadout(); setSlot(0); forestHud(); roundsEl.classList.remove('show'); hideInter(); slideBtn.style.display='none'; toast('☀️ Day 1',`chop trees for wood (FIRE button near a tree), feed the campfire, survive ${NIGHTS_TO_WIN} nights`); }
+  else if(ar){ renderLoadout(); setSlot(0); arenaHud(); A.roundNo=1; renderRounds(); roundsEl.classList.add('show'); hideInter(); toast('Round 1',`first to ${ROUNDS_TO_WIN} rounds · last team standing wins the round`); } else { roundsEl.classList.remove('show'); hideInter(); } document.getElementById('home').style.display='none'; document.getElementById('game').classList.add('active'); resize(); toastEl.classList.remove('show'); running=true; clock.getDelta(); }
 function disposeScene(){ scene.traverse(o=>{ if(o.geometry) o.geometry.dispose(); if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose()); } }); }
 function leaveGame(){ running=false; netLeave(); roundsEl.classList.remove('show'); hideInter(); document.querySelectorAll('.dmg').forEach(e=>e.remove()); if(player) player.scale.y=1; setScope(false); scopeBtn.style.display='none'; loadoutEl.classList.remove('show'); wpnNameEl.classList.remove('show'); document.getElementById('game').classList.remove('active'); document.getElementById('home').style.display='flex'; toastEl.classList.remove('show'); renderGrid(); }
 document.getElementById('exit').onclick=leaveGame;
