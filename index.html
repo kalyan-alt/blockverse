@@ -191,7 +191,7 @@
     </section>
     <section class="screen" id="s-buy">
       <h2>Buy Blockbux</h2>
-      <div class="demo">Demo checkout — no real money is charged. Wire up Stripe on the server to make this live.</div>
+      <div class="demo" id="buyNote">Test mode — Stripe sandbox. Use card 4242 4242 4242 4242, any future date, any CVC. No real money moves.</div>
       <div id="packs"></div>
       <p class="hint">Purchases are added to your balance instantly.</p>
     </section>
@@ -818,7 +818,15 @@ const modal=document.getElementById('modal'), sheet=document.getElementById('she
 function closeModal(){ modal.classList.remove('show'); }
 addEventListener('keydown',e=>{ if(e.key==='Escape'&&modal.classList.contains('show')) closeModal(); if(e.key==='Enter'&&modal.classList.contains('show')){ const b=sheet.querySelector('#payBtn'); if(b&&!b.disabled) b.click(); } });
 modal.addEventListener('pointerdown',e=>{ if(e.target===modal) closeModal(); });
-function openCheckout(pk){ sheet.innerHTML=`<h3>${pk.bb.toLocaleString()} Blockbux · $${pk.usd.toFixed(2)}</h3><div class="sub">Paying as ${acct.name}</div>
+const SERVER_HTTP = ONLINE_URL.replace(/^wss:/,'https:').replace(/^ws:/,'http:');
+let payToken = null;
+function stripeCheckout(pk){ payToken = payToken || ('t'+Math.random().toString(36).slice(2)+Date.now().toString(36));
+  sheet.innerHTML=`<h3>${pk.bb.toLocaleString()} Blockbux · $${pk.usd.toFixed(2)}</h3><div class="sub">Opening secure checkout…</div><div class="demo" style="background:#e9f7f1;border-color:#157a56;color:#157a56">Payment is handled by Stripe. You'll come back here when it's done.</div><button class="cancel" id="cancelBtn">Cancel</button>`;
+  modal.classList.add('show'); sheet.querySelector('#cancelBtn').onclick=closeModal;
+  fetch(SERVER_HTTP+'/buy',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({bb:pk.bb,token:payToken})}).then(r=>r.json()).then(d=>{ if(d.url) location.href=d.url; else throw new Error(d.error||'no url'); })
+    .catch(e=>{ sheet.querySelector('.sub').textContent='Checkout unavailable ('+e.message+') — using demo checkout'; setTimeout(()=>openCheckout(pk,true),900); }); }
+function claimPurchase(){ const q=new URLSearchParams(location.search); if(q.get('paid')==='1'&&q.get('token')){ payToken=q.get('token'); fetch(SERVER_HTTP+'/claim?token='+encodeURIComponent(payToken)).then(r=>r.json()).then(d=>{ if(d.bb>0){ acct.bits+=d.bb; fmtBits(); renderShop(); toast('🎉 +'+d.bb+' Blockbux','thanks for your purchase'); } else toast('Payment received','Blockbux will appear in a moment — tap the chip to refresh'); }).catch(()=>{}); history.replaceState(null,'',location.pathname); } if(q.get('paid')==='0'){ toast('Checkout cancelled'); history.replaceState(null,'',location.pathname); } }
+function openCheckout(pk,forceDemo){ if(ONLINE_URL&&!forceDemo) return stripeCheckout(pk); sheet.innerHTML=`<h3>${pk.bb.toLocaleString()} Blockbux · $${pk.usd.toFixed(2)}</h3><div class="sub">Paying as ${acct.name}</div>
   <div class="demo">Demo mode: any card number works, nothing is charged.</div>
   <div class="field"><label>Card number</label><input id="cNum" inputmode="numeric" placeholder="4242 4242 4242 4242" maxlength="19"></div>
   <div class="two"><div class="field"><label>Expiry</label><input id="cExp" inputmode="numeric" placeholder="MM / YY" maxlength="7"></div><div class="field"><label>CVC</label><input id="cCvc" inputmode="numeric" placeholder="123" maxlength="4"></div></div>
@@ -844,7 +852,7 @@ document.getElementById('installBtn').onclick=async()=>{ if(!deferredInstall) re
 document.getElementById('installX').onclick=()=>bar.classList.remove('show');
 if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
 
-renderGrid(); renderSwatches(); renderShop(); renderPacks(); fmtBits(); drawMini(); drawPreview(); loop();
+renderGrid(); renderSwatches(); renderShop(); renderPacks(); fmtBits(); drawMini(); drawPreview(); loop(); claimPurchase();
 </script>
 </body>
 </html>
