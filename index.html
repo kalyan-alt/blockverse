@@ -268,7 +268,7 @@ const GAMES = [
   {id:'arena', name:'Blaster Arena',   emoji:'🎯', bg:'linear-gradient(135deg,#1d2433,#8c6cff)', desc:'Best of 7 rounds · last team standing · online or bots', stages:1, speed:10, lava:0, arena:true},
 ];
 
-function fmtBits(){ document.getElementById('bitsTop').textContent=acct.bits; document.getElementById('bitsAcct').textContent=acct.bits;
+function fmtBits(){ document.getElementById('bitsTop').textContent=acct.bits; document.getElementById('bitsAcct').textContent=acct.bits; if(typeof renderShop==='function'&&document.getElementById('shopList')) renderShop();
   document.getElementById('statCoins').textContent=acct.coins; document.getElementById('statWins').textContent=acct.wins; document.getElementById('statDeaths').textContent=acct.deaths; }
 function hex(c){ return '#'+c.toString(16).padStart(6,'0'); }
 
